@@ -7,7 +7,7 @@ import pandas
 import numpy
 
 #load train data
-df = pandas.read_csv('/Users/YihanLi/Documents/project/train.csv', index_col=False, header=0)
+df = pandas.read_csv('data/train.csv', index_col=False, header=0)
 df.head()
 
 # Sort the dataset by the suit of each card then by the value
@@ -143,30 +143,8 @@ clf_extra.feature_importances_
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #Test data
-test_df = pandas.read_csv('/Users/YihanLi/Documents/project/test.csv', index_col=False, header=0)
+test_df = pandas.read_csv('data/test.csv', index_col=False, header=0)
 
 test_df.head()
 test_response_df = test_df.hand
