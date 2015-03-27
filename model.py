@@ -1,155 +1,131 @@
-# -*- coding: utf-8 -*-
-
 from __future__ import division
 
 import sqlite3
 import pandas
 import numpy
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.cross_validation import cross_val_score
 
-#load train data
-df = pandas.read_csv('data/train.csv', index_col=False, header=0)
-df.head()
+TRAINING_SET = 'data/train.csv'
+TEST_SET = 'data/test.csv'
+RESULTS = 'data/submission.csv'
 
-# Sort the dataset by the suit of each card then by the value
-df = df.sort(['S1', 'C1', 'S2', 'C2', 'S3', 'C3', 'S4', 'C4', 'S5', 'C5'], ascending=[True, True, True, True, True, True, True, True, True, True])
+def get_card(row, c):
+    return int(row['C'+str(c)])
 
-#Cont the number of occurance of each suit
-df['s1_count'] = 0
-df['s2_count'] = 0
-df['s3_count'] = 0
-df['s4_count'] = 0
-df['abs12'] = 0
-df['abs23'] = 0
-df['abs34'] = 0
-df['abs45'] = 0
-df['abs51'] = 0
+def set_card(row, c, card):
+    row['C'+str(c)] = card
 
-#Add value for the new features
-for index, row in df.iterrows():    
-    count_s1=0
-    count_s2=0
-    count_s3=0
-    count_s4=0
-    abs12=0
-    abs23=0
-    abs34=0
-    abs45=0
-    if row['S1'] == 1:
-        count_s1+=1
-    elif row['S1'] == 2:
-        count_s2+=1
-    elif row['S1'] == 3:
-        count_s3+=1
-    else:
-        count_s4+=1
+def get_suit(row, c):
+    return int(row['S'+str(c)])
 
-    if row['S2'] == 1:
-        count_s1+=1
-    elif row['S2'] == 2:
-        count_s2+=1
-    elif row['S2'] == 3:
-        count_s3+=1
-    else:
-        count_s4+=1
-    
-    if row['S3'] == 1:
-        count_s1+=1
-    elif row['S3'] == 2:
-        count_s2+=1
-    elif row['S3'] == 3:
-        count_s3+=1
-    else:
-        count_s4+=1
+def set_suit(row, c, suit):
+    row['S'+str(c)] = suit
 
-    if row['S4'] == 1:
-        count_s1+=1
-    elif row['S4'] == 2:
-        count_s2+=1
-    elif row['S4'] == 3:
-        count_s3+=1
-    else:
-        count_s4+=1
+def sort_row(row):
+    cards = []
+    for c in range(1, 6):
+        card = get_card(row, c)
+        suit = get_suit(row, c)
+        # converts card (1-13) and suit (1-4) to a universal card id (0-51)
+        card_id = (card-1)*4 + (suit-1)
+        # card_id = ((card-2)%13)*4 + (suit-1)
+        cards.append(card_id)
+    cards.sort()
+    for c in range(1, 6):
+        card_id = cards[c-1]
+        # converts a universal card id (0-51) to card (1-13) and suit (1-4)
+        card = int(card_id / 4) + 1
+        # card = (int(card_id/4)+1)%13 + 1
+        suit = card_id % 4 + 1
+        set_card(row, c, card)
+        set_suit(row, c, suit)
 
-    if row['S5'] == 1:
-        count_s1+=1
-    elif row['S5'] == 2:
-        count_s2+=1
-    elif row['S5'] == 3:
-        count_s3+=1
-    else:
-        count_s4+=1
-    
-    row['abs12'] = abs(row['C1']-row['C2'])
-    row['abs23'] = abs(row['C2']-row['C3'])
-    row['abs34'] = abs(row['C3']-row['C4'])
-    row['abs45'] = abs(row['C4']-row['C5'])
-    row['abs51'] = abs(row['C5']-row['C1'])
+# load training data and sort rows
+df = pandas.read_csv(TRAINING_SET, index_col=False, header=0)
+for index, row in df.iterrows():
+    sort_row(row)
 
-    row['s1_count'] = count_s1
-    row['s2_count'] = count_s2
-    row['s3_count'] = count_s3
-    row['s4_count'] = count_s4
-    
-    
-# Cross validate 20% of the data each time
-CROSS_VALIDATION_AMOUNT = .5
+def suit_count_attr(s):
+    return '#S'+str(s)
 
+def card_count_attr(c):
+    return '#C'+str(c)
 
+def diff_cards_attr(c):
+    return 'diff'+str((c-1)%5+1)+str(c%5+1)
 
+# create additional attributes
+for c in range(1, 6):
+    df[diff_cards_attr(c)] = 0
+for s in range(1, 5):
+    df[suit_count_attr(s)] = 0
+for c in range(1, 14):
+    df[card_count_attr(c)] = 0
 
-#Define response and explanatory series
+for index, row in df.iterrows():
+    for c in range(1, 6):
+        suit = get_suit(row, c)
+        row[suit_count_attr(suit)] = row[suit_count_attr(suit)] + 1
+        card = get_card(row, c)
+        row[diff_cards_attr(c)] = card - get_card(row, c%5+1)
+        row[card_count_attr(card)] = row[card_count_attr(card)] + 1
+
+# define response and explanatory series
 response_df = df.hand
-
 explanatory_features = [col for col in df.columns if col not in ['hand']]
 explanatory_df = df[explanatory_features]
 
-#
-#holdout_num = round(len(df.index) * CROSS_VALIDATION_AMOUNT, 0)
-#test_indices = numpy.random.choice(df.index, holdout_num, replace = False )
-#train_indices = df.index[~df.index.isin(test_indices)]
-#
-#response_train = response_df.ix[train_indices,]
-#explanatory_train = explanatory_df.ix[train_indices,]
-#
-#response_test = response_df.ix[test_indices,]
-#explanatory_test = explanatory_df.ix[test_indices,]
-#
+clf_extra = RandomForestClassifier(
+    n_estimators = 100,
+    criterion = 'entropy',
+    max_features = None,
+    max_depth = None,
+    min_samples_split = 2,
+    min_samples_leaf = 2,
+    max_leaf_nodes = None,
+    random_state = 400)
 
-#
+# train model
+clf_extra = clf_extra.fit(explanatory_df, response_df)
+score = clf_extra.score(explanatory_df, response_df)
+print "Training score: %.2f%%" % (score * 100)
 
-#
-#clf_extra = RandomForestClassifier(n_estimators=100, criterion = 'gini', max_features = None, max_depth = None, min_samples_split = 2, min_samples_leaf = 2, max_leaf_nodes = None, random_state = 400)
-#
-#
-##One instance score
-#clf_extra.fit(explanatory_train, response_train)
-#predicted_values = clf_extra.predict(explanatory_test)
-#
-#number_correct = len(response_test[response_test == predicted_values])
-#total_in_test_set = len(response_test)
-#accuracy = number_correct / total_in_test_set
-#print accuracy* 100
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.cross_validation import cross_val_score
-clf_extra = RandomForestClassifier(n_estimators=100, criterion = 'entropy', max_features = None, max_depth = None, min_samples_split = 2, min_samples_leaf = 2, max_leaf_nodes = None, random_state = 400)
-#cross val score
-
-scores = cross_val_score(clf_extra, explanatory_df, response_df, cv=10, scoring='accuracy', n_jobs = -1)
-mean_accuracy = numpy.mean(scores) 
-print mean_accuracy * 100
-clf_extra.fit(explanatory_df, response_df)
-clf_extra.feature_importances_
-
-
-
+# validate model
+# scores = cross_val_score(
+#     clf_extra,
+#     explanatory_df,
+#     response_df,
+#     cv = 10,
+#     scoring = 'accuracy',
+#     n_jobs = -1)
+# mean_accuracy = numpy.mean(scores) 
+# print "Validation score: %.2f%%" % (mean_accuracy * 100)
 
 #Test data
-test_df = pandas.read_csv('data/test.csv', index_col=False, header=0)
+test_df = pandas.read_csv(TEST_SET, index_col=False, header=0)
+for index, row in test_df.iterrows():
+    sort_row(row)
 
-test_df.head()
-test_response_df = test_df.hand
+# create additional attributes
+for c in range(1, 6):
+    test_df[diff_cards_attr(c)] = 0
+for s in range(1, 5):
+    test_df[suit_count_attr(s)] = 0
+for c in range(1, 14):
+    test_df[card_count_attr(c)] = 0
 
-test_explanatory_df = test_df[explanatory_features]
+for index, row in test_df.iterrows():
+    for c in range(1, 6):
+        suit = get_suit(row, c)
+        row[suit_count_attr(suit)] = row[suit_count_attr(suit)] + 1
+        card = get_card(row, c)
+        row[diff_cards_attr(c)] = card - get_card(row, c%5+1)
+        row[card_count_attr(card)] = row[card_count_attr(card)] + 1
 
-
-CROSS_VALIDATION_AMOUNT = .2
+features = [col for col in test_df.columns if col not in ['id']]
+test_df = test_df[features]
+f = open(RESULTS, 'w')
+f.write('id,hand\n')
+for index, row in test_df.iterrows():
+    f.write('%d,%d\n' % (index+1, clf_extra.predict(row)[0]))
